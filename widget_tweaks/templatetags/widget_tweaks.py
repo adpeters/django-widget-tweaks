@@ -12,6 +12,31 @@ def silence_without_field(fn):
         return fn(field, attr)
     return wrapped
 
+def merge_attrs(attrs1, attrs2):
+    attrs = {}
+    keys = set(list(attrs1) + list(attrs2))
+    for k in keys:
+        value = attrs1.get(k, '')
+        if isinstance(value, str) and attrs2.get(k):
+            if len(value) > 0:
+                value += ' '
+            if isinstance(attrs2[k], str):
+                value += attrs2[k]
+            else:
+                value = attrs2[k]
+        attrs[k] = value
+    return attrs
+
+def get_context_method(widget, wt_attrs, attribute, wt_value, process):
+    old_context = widget.get_context
+
+    def get_context(self, name, value, attrs=None):
+        attrs = merge_attrs(self.attrs, attrs)
+        context = old_context(name, value, attrs)
+        self.get_context = old_context
+        return context
+
+    return get_context
 
 def _process_field_attributes(field, attr, process):
 
@@ -27,12 +52,20 @@ def _process_field_attributes(field, attr, process):
 
     def as_widget(self, widget=None, attrs=None, only_initial=False):
         attrs = attrs or {}
-        process(widget or self.field.widget, attrs, attribute, value)
+        widget = widget or self.field.widget
+        process(widget, attrs, attribute, value)
+
+        if hasattr(widget, 'widgets'):
+            for w in widget.widgets:
+                get_context = get_context_method(w, attrs, attribute, value, process)
+                w.get_context = types.MethodType(get_context, w)
+
         html = old_as_widget(widget, attrs, only_initial)
         self.as_widget = old_as_widget
         return html
 
     field.as_widget = types.MethodType(as_widget, field)
+
     return field
 
 
